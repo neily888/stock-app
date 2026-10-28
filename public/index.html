@@ -764,10 +764,19 @@ $('#fab').onclick=function(){openItem(null);};
 
 renderAll();
 pullQuiet();
-document.addEventListener('visibilitychange',function(){if(!document.hidden&&!busy())pullQuiet();});
-window.addEventListener('online',function(){if(!busy())pullQuiet();});
+var lastPull=Date.now();
+function refreshSoon(){
+  if(document.hidden||busy())return;
+  var n=Date.now();if(n-lastPull<3000)return;
+  lastPull=n;pullQuiet();
+}
+document.addEventListener('visibilitychange',refreshSoon);
+window.addEventListener('focus',refreshSoon);
+window.addEventListener('pageshow',refreshSoon);
+window.addEventListener('online',refreshSoon);
 window.addEventListener('offline',function(){setOffline(true);});
-setInterval(function(){if(!document.hidden&&!busy())pullQuiet();},60000);
+document.addEventListener('touchstart',function(){if(Date.now()-lastPull>20000)refreshSoon();},{passive:true});
+setInterval(refreshSoon,30000);
 if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}
 })();
 </script>
