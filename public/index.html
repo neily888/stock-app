@@ -1,0 +1,775 @@
+<!doctype html>
+<html lang="en-GB">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Stock</title>
+<meta name="theme-color" content="#0e1319" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#f3f5f8" media="(prefers-color-scheme: light)">
+<meta name="color-scheme" content="dark light">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Stock">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="/icons/icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@600;700&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@500;600&display=swap">
+<style>
+/* Layout: sticky top band (title, search, category chips, column heads) over a ledger-style grouped table; bottom tab bar; bottom sheets for every edit. Dark-first, cyan accent. */
+:root{
+  --display:'Bricolage Grotesque',system-ui,sans-serif;
+  --body:'Figtree',system-ui,sans-serif;
+  --mono:'IBM Plex Mono',ui-monospace,Menlo,monospace;
+  --bg:#0e1319; --surface:#161c25; --surface2:#1e2632; --line:#283140;
+  --fg:#e9eef5; --muted:#8c97a9;
+  --accent:#38c6e6; --accent-ink:#03222b;
+  --ok:#5cc58b; --warn:#e3b04b; --bad:#f07272;
+  --shadow:0 -8px 30px rgba(0,0,0,.45);
+  color-scheme:dark;
+}
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    --bg:#f3f5f8; --surface:#ffffff; --surface2:#e9edf2; --line:#d5dce5;
+    --fg:#151b24; --muted:#5d6879;
+    --accent:#0a7f9c; --accent-ink:#ffffff;
+    --ok:#1c8350; --warn:#8f6208; --bad:#c1363a;
+    --shadow:0 -8px 30px rgba(20,30,50,.15);
+    color-scheme:light;
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f3f5f8; --surface:#ffffff; --surface2:#e9edf2; --line:#d5dce5;
+  --fg:#151b24; --muted:#5d6879;
+  --accent:#0a7f9c; --accent-ink:#ffffff;
+  --ok:#1c8350; --warn:#8f6208; --bad:#c1363a;
+  --shadow:0 -8px 30px rgba(20,30,50,.15);
+  color-scheme:light;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html{background:var(--bg)}
+body{margin:0;padding-top:env(safe-area-inset-top,0px);background:var(--bg);color:var(--fg);font:400 16px/1.4 var(--body);-webkit-text-size-adjust:100%}
+body.lock{overflow:hidden}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);background:var(--bg);z-index:30}
+button,input,select{font-family:inherit;color:inherit}
+button{cursor:pointer;-webkit-tap-highlight-color:transparent}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.vh{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* top band */
+.top{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line)}
+.in{max-width:760px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.bar{display:flex;align-items:center;justify-content:space-between;height:56px}
+h1{font:700 23px/1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balance}
+.acts{display:flex;gap:2px;margin-right:-8px}
+.ib{width:44px;height:44px;display:grid;place-items:center;border:0;background:transparent;border-radius:12px;color:var(--fg)}
+.ib[aria-pressed="true"]{background:var(--surface2);color:var(--accent)}
+.search{padding-bottom:10px}
+.txt{width:100%;height:46px;border-radius:12px;border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:0 14px;font:500 16px var(--body)}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 10px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;height:38px;padding:0 15px;border-radius:999px;border:1px solid var(--line);background:var(--surface);color:var(--muted);font:500 14px var(--body);white-space:nowrap}
+.chip[aria-pressed="true"]{background:var(--accent);border-color:var(--accent);color:var(--accent-ink);font-weight:600}
+.cols,.row{display:grid;grid-template-columns:minmax(0,1fr) 58px 58px 50px;column-gap:8px;align-items:center}
+.cols{padding:8px 0;font:600 11px var(--body);letter-spacing:.09em;text-transform:uppercase;color:var(--muted)}
+.cols span:not(:first-child){text-align:center}
+
+/* main */
+.wrap{max-width:760px;margin:0 auto;padding-block:8px 160px;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px))}
+.grp{display:flex;justify-content:space-between;align-items:baseline;gap:12px;margin:22px 0 4px;font:700 13px var(--display);letter-spacing:.11em;text-transform:uppercase;color:var(--accent)}
+.grp .gc{font:500 12px var(--body);letter-spacing:0;text-transform:none;color:var(--muted)}
+.row{min-height:58px;border-bottom:1px solid var(--line)}
+.nm{background:none;border:0;text-align:left;padding:8px 0;min-height:58px;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;font:500 16px/1.25 var(--body)}
+.nm span.t{min-width:0;overflow-wrap:anywhere}
+.pill{font:600 11px var(--body);letter-spacing:.05em;text-transform:uppercase;padding:2px 7px;border-radius:6px;white-space:nowrap}
+.s-out .pill{color:var(--bad);background:color-mix(in srgb,var(--bad) 16%,transparent)}
+.s-low .pill{color:var(--warn);background:color-mix(in srgb,var(--warn) 16%,transparent)}
+.s-paused .pill{color:var(--muted);background:var(--surface2)}
+.cell{height:44px;width:100%;border-radius:10px;border:1px solid var(--line);background:var(--surface);font:600 17px var(--mono);font-variant-numeric:tabular-nums}
+.cell.z{color:var(--muted);font-weight:500}
+.tot{text-align:center;font:600 17px var(--mono);font-variant-numeric:tabular-nums}
+.s-ok .tot{color:var(--ok)}.s-low .tot{color:var(--warn)}.s-out .tot{color:var(--bad)}.s-paused .tot{color:var(--muted)}
+.empty{margin:40px 0;text-align:center;color:var(--muted)}
+.empty strong{display:block;color:var(--fg);font:700 18px var(--display);margin-bottom:4px}
+.banner{display:flex;gap:12px;align-items:flex-start;margin:14px 0 0;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--surface);font-size:15px}
+.banner p{margin:0;flex:1}
+.banner button{background:none;border:0;color:var(--muted);font-size:22px;line-height:1;width:32px;height:32px;margin:-4px -6px 0 0}
+
+/* low list + stock-take lists */
+.head2{display:flex;justify-content:space-between;align-items:center;gap:12px;margin:14px 0 4px}
+.head2 p{margin:0;color:var(--muted);font-size:14px}
+.lrow{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:4px 12px;align-items:center;width:100%;text-align:left;padding:12px 0;border:0;border-bottom:1px solid var(--line);background:none;min-height:66px}
+.lrow .t{font:500 16px/1.25 var(--body);overflow-wrap:anywhere}
+.lrow .s{grid-column:1;color:var(--muted);font-size:13px}
+.lrow .r{grid-row:1/3;grid-column:2;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.lrow .tot{font-size:20px}
+.pbar{height:4px;background:var(--line);border-radius:2px;overflow:hidden;margin-top:8px}
+.pbar i{display:block;height:100%;background:var(--accent)}
+.done{color:var(--ok)}
+.big{display:grid;gap:12px;margin-top:18px}
+.bigbtn{display:grid;gap:2px;text-align:left;padding:16px;border-radius:14px;border:1px solid var(--line);background:var(--surface)}
+.bigbtn b{font:700 20px var(--display)}
+.bigbtn span{color:var(--muted);font-size:14px}
+.back{background:none;border:0;color:var(--accent);font:600 15px var(--body);padding:10px 0;margin-left:-2px}
+.tkcard{margin-top:6px;padding:18px;border:1px solid var(--line);border-radius:16px;background:var(--surface)}
+.tkcard h2{margin:0;font:700 24px/1.15 var(--display);text-wrap:balance}
+.tkcard .sub{margin:6px 0 0;color:var(--muted)}
+.tkact{display:grid;grid-template-columns:1fr 2fr;gap:10px}
+.prog{display:flex;justify-content:space-between;color:var(--muted);font-size:14px;margin-top:4px}
+
+/* bottom bar */
+.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;background:var(--surface);border-top:1px solid var(--line);padding-bottom:env(safe-area-inset-bottom,0px)}
+.tabs .in{display:grid;grid-template-columns:repeat(3,1fr)}
+.tab{position:relative;height:62px;border:0;background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--muted);font:600 12px var(--body)}
+.tab[aria-current="page"]{color:var(--accent)}
+.badge{position:absolute;top:6px;left:calc(50% + 8px);min-width:20px;height:20px;padding:0 5px;border-radius:10px;background:var(--bad);color:#fff;font:600 11px/20px var(--mono);text-align:center}
+.fab{position:fixed;z-index:20;bottom:calc(78px + env(safe-area-inset-bottom,0px));right:max(calc(16px + env(safe-area-inset-right,0px)),calc((100vw - 760px)/2 + 16px));width:58px;height:58px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+
+/* sheets */
+.scrim{position:fixed;inset:0;z-index:40;background:rgba(5,8,12,.62);display:flex;align-items:flex-end;justify-content:center}
+.sheet{width:100%;max-width:520px;max-height:94%;overflow:auto;background:var(--surface);border:1px solid var(--line);border-bottom:0;border-radius:18px 18px 0 0;box-shadow:var(--shadow);padding-block:18px calc(20px + env(safe-area-inset-bottom,0px));padding-left:max(18px,env(safe-area-inset-left,0px));padding-right:max(18px,env(safe-area-inset-right,0px))}
+@media (min-width:600px){.scrim{align-items:center}.sheet{border-radius:18px;border-bottom:1px solid var(--line);padding-bottom:20px}}
+.sh-h{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.sh-h h2{margin:0;font:700 21px/1.2 var(--display);text-wrap:balance;overflow-wrap:anywhere}
+.sub{margin:4px 0 0;color:var(--muted);font-size:14px}
+.x{flex:none;width:40px;height:40px;margin:-6px -8px 0 0;border:0;background:none;font-size:28px;line-height:1;color:var(--muted)}
+.step{display:grid;grid-template-columns:64px minmax(0,1fr) 64px;gap:10px;margin:16px 0 8px}
+.stp{height:60px;border-radius:14px;border:1px solid var(--line);background:var(--surface2);font:500 30px var(--body)}
+.num{width:100%;min-width:0;height:60px;text-align:center;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font:600 28px var(--mono);-moz-appearance:textfield}
+.num::-webkit-inner-spin-button,.num::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
+.note{min-height:44px;margin:8px 0 4px;color:var(--muted);font-size:15px}
+.chk{display:flex;gap:12px;align-items:center;margin:12px 0;min-height:44px;font-size:15px}
+.chk input{width:22px;height:22px;flex:none;accent-color:var(--accent)}
+.sh-f{display:flex;gap:10px;justify-content:flex-end;margin-top:14px}
+.sh-f .btn{flex:1}
+.sh-f .btn.pri{flex:2}
+.btn{height:48px;padding:0 18px;border-radius:12px;border:1px solid var(--line);background:var(--surface2);font:600 16px var(--body);display:inline-flex;align-items:center;justify-content:center;gap:8px}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:transparent}
+.btn.danger{color:var(--bad)}
+.btn.block{width:100%}
+.fld{display:grid;gap:6px;margin:12px 0}
+.fld>label,.lab{font:600 13px var(--body);color:var(--muted)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.err{color:var(--bad);font-size:14px;min-height:20px;margin:4px 0 0}
+.seg{display:grid;grid-auto-flow:column;grid-auto-columns:1fr;gap:6px;padding:4px;border-radius:12px;border:1px solid var(--line);background:var(--bg)}
+.seg button{height:44px;border:0;border-radius:9px;background:transparent;color:var(--muted);font:600 15px var(--body)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.sec{margin:20px 0 0;padding-top:16px;border-top:1px solid var(--line)}
+.sec h3{margin:0 0 8px;font:700 15px var(--display);letter-spacing:.04em;text-transform:uppercase;color:var(--accent)}
+.sec p{margin:0 0 10px;color:var(--muted);font-size:14px}
+.snap{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.snap b{display:block;font-weight:600;font-size:15px}
+.snap small{color:var(--muted);font-size:13px}
+.snap .btn{height:40px;padding:0 14px;font-size:14px}
+textarea.exp{width:100%;height:140px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:10px;font:12px var(--mono)}
+#toast{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom,0px));transform:translate(-50%,12px);max-width:calc(100% - 32px);z-index:50;padding:10px 16px;border-radius:12px;background:var(--fg);color:var(--bg);font:500 14px var(--body);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}
+#toast.on{opacity:1;transform:translate(-50%,0)}
+@media (prefers-reduced-motion:reduce){#toast{transition:none}}
+.off{font:600 11px var(--body);letter-spacing:.06em;text-transform:uppercase;padding:3px 8px;border-radius:6px;color:var(--warn);background:color-mix(in srgb,var(--warn) 16%,transparent);margin-left:10px;vertical-align:3px}
+.hl{display:flex;align-items:center}
+.load{margin:56px 0;text-align:center;color:var(--muted)}
+.load strong{display:block;color:var(--fg);font:700 18px var(--display);margin-bottom:6px}
+.load .btn{margin-top:14px}
+</style>
+</head>
+<body>
+
+<div class="top" id="top"><div class="in">
+  <div class="bar">
+    <div class="hl"><h1 id="h1">Stock</h1><span class="off" id="off" hidden>Offline</span></div>
+    <div class="acts">
+      <button class="ib" id="btnSearch" aria-label="Search items" aria-pressed="false"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg></button>
+      <button class="ib" id="btnMenu" aria-label="Backup and data"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="12" cy="19" r="2"/></svg></button>
+    </div>
+  </div>
+  <div class="search" id="searchRow" hidden><input class="txt" id="q" type="search" placeholder="Search items" autocomplete="off" aria-label="Search items"></div>
+  <div class="chips" id="chips" aria-label="Categories"></div>
+  <div class="cols" id="cols"><span>Item</span><span id="colM">Mobile</span><span id="colB">Base</span><span>Total</span></div>
+</div></div>
+
+<main class="wrap" id="main"></main>
+
+<button class="fab" id="fab" aria-label="Add item"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></button>
+
+<nav class="tabs" aria-label="Sections"><div class="in">
+  <button class="tab" data-view="stock"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h16M4 12h16M4 18h10"/></svg>Stock</button>
+  <button class="tab" data-view="low"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 4h2l2.4 11h10.2L20 7H6.2"/><circle cx="9" cy="19" r="1.4"/><circle cx="17" cy="19" r="1.4"/></svg>Running low<span class="badge" id="badge" hidden></span></button>
+  <button class="tab" data-view="take"><svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4h6v3H9zM9 14l2 2 4-4"/></svg>Stock-take</button>
+</div></nav>
+
+<div class="scrim" id="scrim" hidden><div class="sheet" id="sheet" role="dialog" aria-modal="true" tabindex="-1"></div></div>
+<div id="toast" role="status" aria-live="polite"></div>
+
+<script>
+(function(){
+'use strict';
+var SEED = [["1 amp Fuse","Batteries & Fuses",2],["13 amp Fuse","Batteries & Fuses",2],["3 amp Fuse","Batteries & Fuses",2],["5 amp Fuse","Batteries & Fuses",2],["9 Volt battery","Batteries & Fuses",2],["AA batteries","Batteries & Fuses",2],["AAA batteries","Batteries & Fuses",2],["CR2032","Batteries & Fuses",2],["Lithium AA batteries","Batteries & Fuses",1],["Power Bank (black)","Batteries & Fuses",2],["Power Bank (Green)","Batteries & Fuses",2],["CFL 2D 16w 2 pin","CFL Bulbs",2],["CFL 2D 16w 4 pin","CFL Bulbs",2],["CFL 2D 28w (L) 4 pin","CFL Bulbs",2],["CFL BC","CFL Bulbs",1],["CFL ES","CFL Bulbs",2],["CFL G23 2pin 9W","CFL Bulbs",2],["CFL G23 2pin 9W / 7W","CFL Bulbs",2],["CFL G24q-2","CFL Bulbs",2],["CFL GX24Q1","CFL Bulbs",2],["FL Starter 18-20w","CFL Bulbs",2],["Ant Killer bait station","Consumables",1],["Polyfilla Quick dry","Consumables",1],["BC pendant & rose","Hardware",2],["Buffers Silicone","Hardware",2],["Chain","Hardware",1],["Chopstick (disposable)","Hardware",1],["Dimmer knob chrome","Hardware",2],["Dimmer knob white","Hardware",2],["Door Bolt","Hardware",1],["Euro Cylinder","Hardware",1],["Female Female connector","Hardware",2],["Fitch Fastener","Hardware",1],["Hinge Repair Plate","Hardware",2],["Male Female Coax adapter","Hardware",2],["Male Male coax connector","Hardware",2],["Male to 2 x Female splitter","Hardware",2],["Med Angle Bracket","Hardware",2],["Mending Plate","Hardware",2],["Mortice lock 5 lever 67mm","Hardware",1],["Plinth Clips","Hardware",2],["Roller Blind chain 2m","Hardware",2],["Roller blind chain connector","Hardware",2],["Small Angle Bracket","Hardware",2],["Tool Clips (horse shoe) 3.2cm","Hardware",2],["Tubular Latch 63mm","Hardware",1],["Tubular Latch 76mm","Hardware",1],["Yale Cylinder (new) 2 keys","Hardware",1],["Yale Cylinder (used)","Hardware",1],["LED BC","LED Bulbs",2],["LED BC dim","LED Bulbs",2],["LED Candle BC","LED Bulbs",2],["LED Candle BC dim","LED Bulbs",1],["LED Candle SBC","LED Bulbs",2],["LED Candle SES","LED Bulbs",2],["LED Candle SES dim","LED Bulbs",2],["LED dec filament","LED Bulbs",2],["LED dec v large globe","LED Bulbs",2],["LED ES","LED Bulbs",2],["LED ES dim","LED Bulbs",2],["LED ES filament non dim","LED Bulbs",1],["LED G4","LED Bulbs",2],["LED G9","LED Bulbs",2],["LED Globe BC","LED Bulbs",2],["LED Globe ES dim","LED Bulbs",1],["LED Globe SES","LED Bulbs",2],["LED GU10","LED Bulbs",2],["LED GU10 dim","LED Bulbs",2],["LED GU5.3","LED Bulbs",2],["LED GU5.3 dim","LED Bulbs",2],["LED GX53","LED Bulbs",2],["LED linear 118mm","LED Bulbs",2],["LED linear 78mm","LED Bulbs",2],["LED Pygmy SES","LED Bulbs",2],["LED SES","LED Bulbs",2],["LED tube S15 4w 284mm","LED Bulbs",2],["Linen Bath Mat/Tea Towel","Linens",1],["Linen Double (Red)","Linens",1],["Linen King (Yellow)","Linens",1],["Linen Single (Blue)","Linens",1],["Linen Super King (Green)","Linens",1],["*Used Wall lockbox (missing cover)","Lockboxes",2],["Bike Cable","Lockboxes",2],["New Railing Lockbox","Lockboxes",2],["New Wall Lockbox","Lockboxes",2],["Used Railing Lockbox","Lockboxes",2],["Used Wall Lockbox","Lockboxes",2],["Bath plug black","Plumbing",1],["Rubber washers","Plumbing",2],["Shower Handset holder","Plumbing",1],["Shower Head","Plumbing",2],["Shower Head Holder (for riser)","Plumbing",2],["Shower Hose","Plumbing",2],["BC to ES adapter","Standard Bulbs",2],["Stnd BC","Standard Bulbs",2],["Stnd Candle BC","Standard Bulbs",2],["Stnd Candle ES","Standard Bulbs",2],["Stnd Candle SBC","Standard Bulbs",2],["Stnd Candle SES","Standard Bulbs",2],["Stnd cooker hood","Standard Bulbs",2],["Stnd ES","Standard Bulbs",2],["Stnd G4","Standard Bulbs",2],["Stnd G9 19w","Standard Bulbs",2],["Stnd G9 28w","Standard Bulbs",2],["Stnd Globe BC","Standard Bulbs",2],["Stnd Globe ES","Standard Bulbs",2],["Stnd Globe SBC","Standard Bulbs",2],["Stnd Globe SES","Standard Bulbs",2],["Stnd GU10","Standard Bulbs",2],["Stnd GU5.3","Standard Bulbs",2],["Stnd GY6.35","Standard Bulbs",2],["Stnd Linear 78mm 120w","Standard Bulbs",2],["Stnd Linear 78mm 80w","Standard Bulbs",2],["Stnd MR11 (mini gu5.3)","Standard Bulbs",2],["Stnd oven SES","Standard Bulbs",2],["Stnd Pygmy SES","Standard Bulbs",2]];
+var LOC={m:'Mobile',b:'Base'};
+var mem={};
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return mem[k]==null?null:mem[k];}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){mem[k]=v;}}
+function $(s){return document.querySelector(s);}
+function esc(s){return String(s).replace(/[&<>"']/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];});}
+function ymd(d){return d.getFullYear()+'-'+('0'+(d.getMonth()+1)).slice(-2)+'-'+('0'+d.getDate()).slice(-2);}
+function fmtDay(d){return d.toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short'});}
+function fmtStamp(ts){var d=new Date(ts);return fmtDay(d)+', '+d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'});}
+function cmp(a,b){return a.localeCompare(b,undefined,{numeric:true,sensitivity:'base'});}
+
+/* ---------- data ---------- */
+var CACHE='stock.cache.v1';
+function seedState(){
+  var id=0;
+  return {items:SEED.map(function(r){id++;return {id:id,name:r[0],group:r[1],low:r[2],paused:false,m:0,b:0};}),counted:{m:{},b:{}},nextId:id+1};
+}
+function emptyState(){return {items:[],counted:{m:{},b:{}},nextId:1};}
+function fix(s){
+  s.counted=s.counted||{m:{},b:{}};s.counted.m=s.counted.m||{};s.counted.b=s.counted.b||{};
+  var max=0;s.items.forEach(function(i){if(i.id>max)max=i.id;});
+  s.nextId=Math.max(s.nextId||0,max+1);
+  return s;
+}
+function readCache(){
+  var raw=lsGet(CACHE);
+  if(raw){try{var o=JSON.parse(raw);if(o&&o.state&&Array.isArray(o.state.items))return {version:o.version|0,state:fix(o.state)};}catch(e){}}
+  return null;
+}
+var cached=readCache();
+var state=cached?cached.state:emptyState();
+var sync={version:cached?cached.version:0,synced:JSON.stringify(state),saving:false,dirty:false,loaded:!!cached,failed:false,pending:null};
+function writeCache(){lsSet(CACHE,JSON.stringify({version:sync.version,state:state}));}
+function setOffline(f){var o=document.getElementById('off');if(o)o.hidden=!f;}
+function api(path,opts){
+  opts=opts||{};opts.headers={'content-type':'application/json'};opts.cache='no-store';
+  return fetch('/api/'+path,opts).then(function(r){
+    return r.json().then(function(j){return {status:r.status,body:j};},function(){return {status:r.status,body:null};});
+  });
+}
+function rederiveTake(){if(st.cat)st.list=itemsIn(st.cat);}
+function adopt(b){
+  state=fix(b.state);sync.version=b.version;sync.synced=JSON.stringify(state);sync.loaded=true;sync.failed=false;
+  writeCache();rederiveTake();
+}
+function busy(){return !scrim.hidden||(ui.view==='take'&&!!st.cat)||sync.saving||sync.dirty;}
+function persist(opts){
+  writeCache();
+  sync.dirty=true;
+  if(opts)sync.pending=opts;
+  if(navigator.onLine===false){setTimeout(fail,0);return;}
+  flush();
+}
+function flush(){
+  if(sync.saving||!sync.dirty)return;
+  sync.saving=true;sync.dirty=false;
+  var snap=JSON.stringify(state),p=sync.pending;sync.pending=null;
+  var body={baseVersion:sync.version,state:state};
+  if(p){body.force=!!p.force;body.label=p.label;}
+  api('state',{method:'PUT',body:JSON.stringify(body)}).then(function(r){
+    sync.saving=false;
+    if(r.status===200&&r.body){
+      sync.version=r.body.version;sync.synced=snap;setOffline(false);
+      if(sync.dirty)flush();else writeCache();
+    }else if(r.status===409&&r.body&&r.body.state){
+      sync.dirty=false;adopt(r.body);closeSheet();renderAll(true);
+      toast('Changed on another device. Latest loaded. Make your change again.');
+    }else fail();
+  },function(){sync.saving=false;fail();});
+}
+function fail(){
+  sync.dirty=false;sync.pending=null;
+  try{state=fix(JSON.parse(sync.synced));}catch(e){}
+  writeCache();rederiveTake();setOffline(true);
+  if(!scrim.hidden)closeSheet();
+  renderAll(true);
+  toast('Couldn’t save, so that change was undone. Check your signal.');
+}
+function pull(){
+  return api('state').then(function(r){
+    if(r.status!==200||!r.body)throw new Error('bad response');
+    setOffline(false);
+    var b=r.body;
+    if(!b.state){
+      if(!sync.loaded||!state.items.length)state=seedState();
+      sync.loaded=true;sync.failed=false;sync.version=0;sync.synced=JSON.stringify(state);
+      persist();renderAll(true);return;
+    }
+    if(b.version!==sync.version||!sync.loaded){
+      if(!busy()){adopt(b);renderAll(true);}
+    }
+  });
+}
+function pullQuiet(){
+  pull().catch(function(){
+    setOffline(true);
+    if(!sync.loaded){sync.failed=true;renderAll();}
+  });
+}
+function byId(id){for(var i=0;i<state.items.length;i++)if(state.items[i].id===+id)return state.items[i];return null;}
+function total(i){return i.m+i.b;}
+function status(i){
+  if(i.paused)return 'paused';
+  var t=total(i);
+  if(t===0)return 'out';
+  if(t<=i.low)return 'low';
+  return 'ok';
+}
+function isLow(i){var s=status(i);return s==='low'||s==='out';}
+function allGroups(){
+  var seen={},out=[];
+  state.items.forEach(function(i){if(!seen[i.group]){seen[i.group]=1;out.push(i.group);}});
+  return out.sort(cmp);
+}
+function itemsIn(g){return state.items.filter(function(i){return i.group===g;}).sort(function(a,b){return cmp(a.name,b.name);});}
+function numVal(el){var n=parseInt(el.value,10);if(!isFinite(n)||n<0)return 0;return Math.min(n,99999);}
+
+/* ---------- ui state ---------- */
+var ui={view:'stock',cat:'All',q:'',searchOpen:false,bannerOff:false};
+var st={loc:null,cat:null,idx:0,list:[]};
+var live=null;
+var TITLES={stock:'Stock',low:'Running low',take:'Stock-take'};
+
+/* ---------- render ---------- */
+function renderTop(){
+  $('#h1').textContent=TITLES[ui.view];
+  var stock=ui.view==='stock';
+  $('#chips').hidden=!stock;$('#cols').hidden=!stock;
+  $('#btnSearch').hidden=!stock;
+  $('#searchRow').hidden=!(stock&&ui.searchOpen);
+  $('#btnSearch').setAttribute('aria-pressed',String(ui.searchOpen));
+  $('#fab').hidden=!stock;
+  if(stock){
+    var gs=['All'].concat(allGroups());
+    if(gs.indexOf(ui.cat)<0)ui.cat='All';
+    $('#chips').innerHTML=gs.map(function(g){return '<button class="chip" data-act="chip" data-cat="'+esc(g)+'" aria-pressed="'+(g===ui.cat)+'">'+esc(g)+'</button>';}).join('');
+  }
+}
+function renderTabs(){
+  document.querySelectorAll('.tab').forEach(function(t){
+    if(t.dataset.view===ui.view)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current');
+  });
+  var n=state.items.filter(isLow).length;
+  var b=$('#badge');b.hidden=n===0;b.textContent=n>99?'99+':n;
+}
+function row(i){
+  var s=status(i),t=total(i);
+  var pill=s==='out'?'<span class="pill">Out</span>':s==='low'?'<span class="pill">Low</span>':s==='paused'?'<span class="pill">Not reordering</span>':'';
+  return '<div class="row s-'+s+'">'+
+    '<button class="nm" data-act="edit" data-id="'+i.id+'"><span class="t">'+esc(i.name)+'</span>'+pill+'</button>'+
+    ['m','b'].map(function(l){return '<button class="cell'+(i[l]===0?' z':'')+'" data-act="count" data-loc="'+l+'" data-id="'+i.id+'" aria-label="'+esc(i.name)+', '+LOC[l]+' '+i[l]+'. Edit count">'+i[l]+'</button>';}).join('')+
+    '<span class="tot">'+t+'</span></div>';
+}
+function renderStock(){
+  var q=ui.q.trim().toLowerCase();
+  var list=state.items.filter(function(i){
+    return (ui.cat==='All'||i.group===ui.cat)&&(!q||i.name.toLowerCase().indexOf(q)>=0||i.group.toLowerCase().indexOf(q)>=0);
+  });
+  var h='';
+  var units=state.items.reduce(function(a,i){return a+total(i);},0);
+  if(units===0&&!ui.bannerOff){
+    h+='<div class="banner"><p>Every count starts at zero. Open <b>Stock-take</b> to enter what you actually have, one location at a time.</p><button data-act="dismiss" aria-label="Dismiss">×</button></div>';
+  }
+  if(!list.length){
+    h+='<div class="empty"><strong>'+(state.items.length?'Nothing matches':'No items yet')+'</strong>'+(state.items.length?'Try a different search or category.':'Tap + to add your first item.')+'</div>';
+  }else{
+    var groups={};
+    list.forEach(function(i){(groups[i.group]=groups[i.group]||[]).push(i);});
+    Object.keys(groups).sort(cmp).forEach(function(g){
+      var l=groups[g].sort(function(a,b){return cmp(a.name,b.name);});
+      var low=l.filter(isLow).length;
+      h+='<h2 class="grp"><span>'+esc(g)+'</span><span class="gc">'+l.length+(l.length===1?' item':' items')+(low?' · '+low+' low':'')+'</span></h2>'+l.map(row).join('');
+    });
+  }
+  $('#main').innerHTML=h;
+}
+function lowList(){
+  return state.items.filter(isLow).sort(function(a,b){return (total(a)-total(b))||cmp(a.name,b.name);});
+}
+function renderLow(){
+  var l=lowList(),h='';
+  h+='<div class="head2"><p>'+(l.length?l.length+(l.length===1?' item to buy':' items to buy'):'')+'</p>'+(l.length?'<button class="btn" style="height:40px" data-act="copy">Copy list</button>':'')+'</div>';
+  if(!l.length){
+    h+='<div class="empty"><strong>Nothing to buy</strong>Everything is above its low-stock level.</div>';
+  }else{
+    h+=l.map(function(i){
+      var s=status(i);
+      return '<button class="lrow s-'+s+'" data-act="bought" data-id="'+i.id+'"><span class="t">'+esc(i.name)+'</span>'+
+        '<span class="s">'+esc(i.group)+' · Mobile '+i.m+' · Base '+i.b+' · low at '+i.low+'</span>'+
+        '<span class="r"><span class="tot">'+total(i)+'</span><span class="pill">'+(s==='out'?'Out':'Low')+'</span></span></button>';
+    }).join('');
+  }
+  $('#main').innerHTML=h;
+}
+function countedIn(loc,g){var l=itemsIn(g);return {n:l.filter(function(i){return st.loc&&state.counted[loc][i.id];}).length,of:l.length};}
+function renderTake(){
+  var h='';
+  if(!st.loc){
+    h+='<p class="sub" style="margin-top:14px">Count one place at a time. Whatever you type becomes the new number for that place. Nothing is moved between Mobile and Base.</p><div class="big">';
+    ['m','b'].forEach(function(l){
+      var done=state.items.filter(function(i){return state.counted[l][i.id];}).length;
+      h+='<button class="bigbtn" data-act="tk-loc" data-loc="'+l+'"><b>Count '+LOC[l]+'</b><span>'+done+' of '+state.items.length+' items counted</span></button>';
+    });
+    h+='</div>';
+  }else if(!st.cat){
+    var l=st.loc;
+    h+='<div class="head2"><button class="back" data-act="tk-change">‹ Change location</button><button class="btn ghost" style="height:40px" data-act="tk-fresh">Start fresh pass</button></div>';
+    h+='<h2 style="margin:4px 0 0;font:700 22px var(--display)">Counting '+LOC[l]+'</h2><p class="sub">Pick a category. Items you skip keep their old number.</p>';
+    allGroups().forEach(function(g){
+      var c=countedIn(l,g),pct=c.of?Math.round(c.n/c.of*100):0;
+      h+='<button class="lrow" data-act="tk-cat" data-cat="'+esc(g)+'"><span class="t">'+esc(g)+'</span><span class="s'+(c.n===c.of?' done':'')+'" style="grid-column:1">'+(c.n===c.of?'All counted':c.n+' of '+c.of+' counted')+'</span><span class="r"><span class="tot" style="color:var(--muted)">›</span></span></button><div class="pbar" style="margin:-2px 0 0"><i style="width:'+pct+'%"></i></div>';
+    });
+  }else{
+    var it=st.list[st.idx];
+    if(!it){st.cat=null;renderTake();return;}
+    var pct=Math.round(st.idx/st.list.length*100);
+    h+='<button class="back" data-act="tk-back">‹ Categories</button>';
+    h+='<div class="prog"><span>'+esc(st.cat)+' · '+LOC[st.loc]+'</span><span>'+(st.idx+1)+' of '+st.list.length+'</span></div><div class="pbar" style="margin:6px 0 14px"><i style="width:'+pct+'%"></i></div>';
+    h+='<div class="tkcard"><h2>'+esc(it.name)+'</h2><p class="sub">'+LOC[st.loc]+' is currently '+it[st.loc]+(state.counted[st.loc][it.id]?' · counted':'')+'</p>'+stepper('tk',it[st.loc])+
+      '<div class="tkact"><button class="btn" data-act="tk-skip">Skip</button><button class="btn pri" id="tkNext" data-act="tk-next">Same, next</button></div>'+
+      '<div class="head2" style="margin-bottom:0"><button class="back" data-act="tk-prev"'+(st.idx===0?' disabled style="opacity:.4"':'')+'>‹ Previous item</button></div></div>';
+  }
+  $('#main').innerHTML=h;
+  if(st.loc&&st.cat){
+    var inp=$('#tk');
+    if(inp){
+      var it2=st.list[st.idx];
+      live=function(){var v=numVal(inp);$('#tkNext').textContent=v===it2[st.loc]?'Same, next':'Save, next';};
+      try{inp.focus();inp.select();}catch(e){}
+    }
+  }else live=null;
+}
+function renderMain(){
+  live=null;
+  if(!sync.loaded){
+    $('#main').innerHTML=sync.failed
+      ?'<div class="load"><strong>Can\u2019t reach your stock</strong>Check your signal, then try again.<br><button class="btn" data-act="retry">Try again</button></div>'
+      :'<div class="load"><strong>Loading your stock\u2026</strong></div>';
+    return;
+  }
+  if(ui.view==='stock')renderStock();else if(ui.view==='low')renderLow();else renderTake();
+  window.scrollTo(0,0);
+}
+function renderAll(keepScroll){
+  var y=window.scrollY;
+  renderTop();renderTabs();
+  var l=live;renderMain();live=live||l;
+  if(keepScroll)window.scrollTo(0,y);
+}
+function refresh(){ /* after data change: keep scroll */
+  var y=window.scrollY;
+  renderTop();renderTabs();
+  var keep=ui.view==='take'&&st.cat;
+  if(!keep){live=null;if(ui.view==='stock')renderStock();else if(ui.view==='low')renderLow();else renderTake();window.scrollTo(0,y);}
+}
+
+/* ---------- sheet ---------- */
+var sheetEl=$('#sheet'),scrim=$('#scrim'),sheetCtx=null,lastFocus=null;
+function openSheet(html){
+  lastFocus=document.activeElement;
+  sheetEl.innerHTML=html;scrim.hidden=false;document.body.classList.add('lock');
+  sheetEl.scrollTop=0;try{sheetEl.focus();}catch(e){}
+}
+function closeSheet(){
+  scrim.hidden=true;sheetEl.innerHTML='';sheetCtx=null;document.body.classList.remove('lock');
+  try{if(lastFocus&&lastFocus.focus&&document.contains(lastFocus))lastFocus.focus();}catch(e){}
+}
+var tt;
+function toast(m){var t=$('#toast');t.textContent=m;t.classList.add('on');clearTimeout(tt);tt=setTimeout(function(){t.classList.remove('on');},2600);}
+function stepper(id,val){
+  return '<div class="step"><button type="button" class="stp" data-step="-1" data-for="'+id+'" aria-label="Decrease">−</button>'+
+    '<input class="num" id="'+id+'" type="number" inputmode="numeric" min="0" step="1" value="'+val+'" aria-label="Count">'+
+    '<button type="button" class="stp" data-step="1" data-for="'+id+'" aria-label="Increase">+</button></div>';
+}
+function head(title,sub){return '<div class="sh-h"><div><h2>'+esc(title)+'</h2>'+(sub?'<p class="sub">'+sub+'</p>':'')+'</div><button class="x" data-close aria-label="Close">×</button></div>';}
+
+/* count edit */
+function openCount(id,loc){
+  var it=byId(id),old=it[loc];
+  openSheet(head(it.name,LOC[loc]+' now '+old)+stepper('cnt',old)+
+    '<label class="chk" id="usedRow" hidden><input type="checkbox" id="used"><span>Used up. Don’t add to Mobile.</span></label>'+
+    '<p class="note" id="note"></p><div class="sh-f"><button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="save">Save</button></div>');
+  var inp=$('#cnt'),used=$('#used'),row=$('#usedRow'),note=$('#note');
+  function calc(){
+    var val=numVal(inp),d=val-old,tot=total(it);
+    row.hidden=!(loc==='b'&&d<0);
+    var moved=(loc==='b'&&d<0&&!used.checked)?-d:0;
+    var msg;
+    if(d===0)msg='No change.';
+    else if(moved)msg='Mobile goes from '+it.m+' to '+(it.m+moved)+'. Total stays '+tot+'.';
+    else{
+      var nt=tot+d;
+      msg='Total goes from '+tot+' to '+nt+'.';
+      if(!it.paused&&nt===0)msg+=' It will show as out.';
+      else if(!it.paused&&nt<=it.low)msg+=' It will show as low.';
+    }
+    note.textContent=msg;
+    return {val:val,moved:moved,d:d};
+  }
+  sheetCtx={update:calc};calc();
+  $('#save').onclick=function(){
+    var r=calc();
+    if(r.d===0){closeSheet();return;}
+    it[loc]=r.val;if(r.moved)it.m+=r.moved;
+    persist();closeSheet();refresh();
+    toast(r.moved?'Moved '+r.moved+' to Mobile':LOC[loc]+' set to '+r.val);
+  };
+}
+
+/* add / edit item */
+function openItem(id){
+  var it=id?byId(id):null,gs=allGroups();
+  var defGroup=it?it.group:(ui.cat!=='All'?ui.cat:(gs[0]||''));
+  var opts=gs.map(function(g){return '<option value="'+esc(g)+'"'+(g===defGroup?' selected':'')+'>'+esc(g)+'</option>';}).join('')+'<option value="__new">New category…</option>';
+  openSheet(head(it?'Edit item':'Add item')+
+    '<div class="fld"><label for="f-name">Name</label><input class="txt" id="f-name" value="'+(it?esc(it.name):'')+'" autocomplete="off"></div>'+
+    '<div class="fld"><label for="f-cat">Category</label><select class="txt" id="f-cat">'+opts+'</select></div>'+
+    '<div class="fld" id="newRow" hidden><label for="f-new">New category name</label><input class="txt" id="f-new" autocomplete="off"></div>'+
+    '<div class="two"><div class="fld"><label for="f-low">Low at (total)</label><input class="txt" id="f-low" type="number" inputmode="numeric" min="0" value="'+(it?it.low:2)+'"></div>'+
+    (it?'':'<div></div>')+'</div>'+
+    (it?'':'<div class="two"><div class="fld"><label for="f-m">Mobile now</label><input class="txt" id="f-m" type="number" inputmode="numeric" min="0" value="0"></div><div class="fld"><label for="f-b">Base now</label><input class="txt" id="f-b" type="number" inputmode="numeric" min="0" value="0"></div></div>')+
+    '<label class="chk"><input type="checkbox" id="f-pause"'+(it&&it.paused?' checked':'')+'><span>Don’t reorder. Keep it listed, but never show it as low.</span></label>'+
+    '<p class="err" id="err"></p>'+
+    '<div class="sh-f">'+(it?'<button class="btn danger" id="del">Delete</button>':'')+'<button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="save">'+(it?'Save':'Add item')+'</button></div>');
+  var sel=$('#f-cat');
+  function syncNew(){$('#newRow').hidden=sel.value!=='__new';}
+  sel.onchange=syncNew;syncNew();
+  if(!gs.length){sel.value='__new';syncNew();}
+  if(it){
+    var del=$('#del');
+    del.onclick=function(){
+      if(del.dataset.arm!=='1'){del.dataset.arm='1';del.textContent='Tap again to delete';return;}
+      state.items=state.items.filter(function(x){return x.id!==it.id;});
+      delete state.counted.m[it.id];delete state.counted.b[it.id];
+      persist();closeSheet();refresh();toast('Deleted '+it.name);
+    };
+  }
+  $('#save').onclick=function(){
+    var name=$('#f-name').value.trim(),err=$('#err');
+    if(!name){err.textContent='Enter a name for the item.';return;}
+    var dupe=state.items.some(function(x){return x.name.toLowerCase()===name.toLowerCase()&&(!it||x.id!==it.id);});
+    if(dupe){err.textContent='An item with that name already exists.';return;}
+    var g=sel.value;
+    if(g==='__new'){
+      g=$('#f-new').value.trim();
+      if(!g){err.textContent='Enter a name for the new category.';return;}
+      var ex=allGroups().filter(function(x){return x.toLowerCase()===g.toLowerCase();})[0];
+      if(ex)g=ex;
+    }
+    var low=numVal($('#f-low')),paused=$('#f-pause').checked;
+    if(it){
+      it.name=name;it.group=g;it.low=low;it.paused=paused;
+      persist();closeSheet();refresh();toast('Saved');
+    }else{
+      var n={id:state.nextId++,name:name,group:g,low:low,paused:paused,m:numVal($('#f-m')),b:numVal($('#f-b'))};
+      state.items.push(n);persist();closeSheet();
+      ui.cat=ui.cat==='All'?'All':g;refresh();toast('Added '+name);
+    }
+  };
+}
+
+/* bought, from the running-low list */
+function openBought(id){
+  var it=byId(id),tot=total(it),loc='b';
+  var def=Math.max(1,it.low+1-tot);
+  openSheet(head(it.name,'Have '+tot+' · Mobile '+it.m+', Base '+it.b+' · low at '+it.low)+
+    '<div class="lab" style="margin-top:14px">How many did you buy?</div>'+stepper('qty',def)+
+    '<div class="lab">Where did they go?</div><div class="seg" id="seg"><button type="button" data-loc="m" aria-pressed="false">Mobile</button><button type="button" data-loc="b" aria-pressed="true">Base</button></div>'+
+    '<p class="note" id="note"></p>'+
+    '<div class="sh-f"><button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="save">Add stock</button></div>'+
+    '<div class="sec"><p>Not going to buy this again?</p><button class="btn block" id="stop">Stop reordering this item</button></div>');
+  var inp=$('#qty'),note=$('#note');
+  function calc(){
+    var q=numVal(inp),nt=tot+q;
+    var msg=LOC[loc]+' goes from '+it[loc]+' to '+(it[loc]+q)+'. Total '+nt+'.';
+    msg+=nt>it.low?' No longer low.':' Still low.';
+    note.textContent=msg;return q;
+  }
+  document.querySelectorAll('#seg button').forEach(function(b){
+    b.onclick=function(){loc=b.dataset.loc;document.querySelectorAll('#seg button').forEach(function(x){x.setAttribute('aria-pressed',String(x===b));});calc();};
+  });
+  sheetCtx={update:calc};calc();
+  $('#save').onclick=function(){
+    var q=calc();if(q<=0){closeSheet();return;}
+    it[loc]+=q;persist();closeSheet();refresh();toast('Added '+q+' to '+LOC[loc]);
+  };
+  $('#stop').onclick=function(){it.paused=true;persist();closeSheet();refresh();toast('Won’t show '+it.name+' as low');};
+}
+
+/* ---------- backup / import ---------- */
+function exportObj(){
+  return {app:'van-base-stock',version:1,exportedAt:new Date().toISOString(),locations:{m:LOC.m,b:LOC.b},
+    items:state.items.map(function(i){return {name:i.name,group:i.group,low:i.low,paused:i.paused,m:i.m,b:i.b};})};
+}
+function parseBackup(o,zero){
+  if(!o||!Array.isArray(o.items))throw new Error('This file has no item list.');
+  var canon={},items=[],id=0;
+  o.items.forEach(function(r){
+    if(!r||typeof r.name!=='string'||!r.name.trim())return;
+    var g=String(r.group==null?'':r.group).trim()||'Uncategorised',k=g.toLowerCase();
+    if(!canon[k])canon[k]=g;
+    function n(v){v=parseInt(v,10);return isFinite(v)&&v>=0?Math.min(v,99999):0;}
+    var m=r.m!=null?r.m:r.quantityLocationA,b=r.b!=null?r.b:r.quantityLocationB,low=r.low!=null?r.low:r.lowStockThreshold;
+    id++;
+    items.push({id:id,name:r.name.trim(),group:canon[k],low:low==null?2:n(low),paused:!!(r.paused||r.isArchived),m:zero?0:n(m),b:zero?0:n(b)});
+  });
+  if(!items.length)throw new Error('No usable items found in this file.');
+  return {items:items,counted:{m:{},b:{}},nextId:id+1};
+}
+function showExportText(json){
+  openSheet(head('Backup text','The file couldn’t be saved. Copy this text into a file ending in .json.')+
+    '<textarea class="exp" id="exp" readonly></textarea><div class="sh-f"><button class="btn pri" data-close>Done</button></div>');
+  $('#exp').value=json;try{$('#exp').select();}catch(e){}
+}
+function doExport(){
+  var json=JSON.stringify(exportObj(),null,2),name='stock-backup-'+ymd(new Date())+'.json';
+  try{
+    var blob=new Blob([json],{type:'application/json'});
+    var mobile=/iPhone|iPad|Android/i.test(navigator.userAgent);
+    if(mobile&&window.File&&navigator.canShare){
+      var file=new File([blob],name,{type:'application/json'});
+      if(navigator.canShare({files:[file]})){navigator.share({files:[file]}).catch(function(){});return;}
+    }
+    var a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;
+    document.body.appendChild(a);a.click();
+    setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},1500);
+    toast('Backup downloaded');
+  }catch(e){showExportText(json);}
+}
+function openMenu(){
+  var h=head('Backup and data')+
+    '<div class="sec" style="border:0;margin-top:8px;padding-top:0"><h3>Backup file</h3><p>Keep a copy outside the app.</p>'+
+    '<div class="two"><button class="btn" id="exp-btn">Export</button><label class="btn" for="imp" style="cursor:pointer">Import</label></div>'+
+    '<input class="vh" id="imp" type="file" accept=".json,application/json"></div>'+
+    '<div class="sec"><h3>Automatic copies</h3><p>A copy is kept before the first change each day. The last 30 are stored.</p><div id="snaps"><p>Loading…</p></div></div>';
+  openSheet(h);
+  $('#exp-btn').onclick=doExport;
+  $('#imp').onchange=function(e){
+    var f=e.target.files&&e.target.files[0];if(!f)return;
+    var rd=new FileReader();
+    rd.onload=function(){
+      var o;
+      try{o=JSON.parse(String(rd.result));}catch(x){toast('That file isn’t a valid backup');return;}
+      confirmImport(o);
+    };
+    rd.onerror=function(){toast('Couldn’t read that file');};
+    rd.readAsText(f);
+  };
+  api('snapshots').then(function(r){
+    var box=$('#snaps');if(!box)return;
+    if(r.status!==200||!r.body){box.innerHTML='<p>Couldn’t load the copies. Check your signal.</p>';return;}
+    var list=r.body.snapshots||[];
+    if(!list.length){box.innerHTML='<p>No copies yet. The first one appears after your next change.</p>';return;}
+    box.innerHTML=list.slice(0,10).map(function(s,i){
+      return '<div class="snap"><div><b>'+esc(s.label)+'</b><small>'+s.items+' items · '+s.units+' in stock</small></div><button class="btn" data-restore="'+i+'">Restore</button></div>';
+    }).join('');
+    box.querySelectorAll('[data-restore]').forEach(function(b){
+      b.onclick=function(){
+        if(b.dataset.arm!=='1'){b.dataset.arm='1';b.textContent='Confirm';return;}
+        b.disabled=true;
+        api('restore',{method:'POST',body:JSON.stringify({id:list[+b.dataset.restore].id})}).then(function(rr){
+          if(rr.status===200&&rr.body&&rr.body.state){adopt(rr.body);closeSheet();renderAll();toast('Restored from automatic copy');}
+          else{b.disabled=false;toast('Couldn’t restore that copy');}
+        },function(){b.disabled=false;toast('Couldn’t restore. Check your signal.');});
+      };
+    });
+  },function(){var box=$('#snaps');if(box)box.innerHTML='<p>Couldn’t load the copies. Check your signal.</p>';});
+}
+function confirmImport(o){
+  var old=!(o&&o.app==='van-base-stock');
+  var res;
+  try{res=parseBackup(o,false);}catch(x){toast(x.message);return;}
+  var cats={};res.items.forEach(function(i){cats[i.group]=1;});
+  openSheet(head('Import backup')+
+    '<p class="note" style="min-height:0">Found '+res.items.length+' items in '+Object.keys(cats).length+' categories. Importing replaces everything now in the app. A copy of the current data is kept first.</p>'+
+    '<label class="chk"><input type="checkbox" id="zero"'+(old?' checked':'')+'><span>Start every count at zero</span></label>'+
+    '<div class="sh-f"><button class="btn ghost" data-close>Cancel</button><button class="btn pri" id="go">Replace everything</button></div>');
+  $('#go').onclick=function(){
+    var r=parseBackup(o,$('#zero').checked);
+    state=fix(r);ui.cat='All';st.loc=null;st.cat=null;
+    persist({force:true,label:'Before import, '+fmtStamp(Date.now())});
+    closeSheet();renderAll();toast('Imported '+r.items.length+' items');
+  };
+}
+
+/* ---------- stock-take actions ---------- */
+function tkAdvance(){
+  st.idx++;
+  if(st.idx>=st.list.length){
+    var g=st.cat;st.cat=null;renderTake();window.scrollTo(0,0);toast(g+' done');
+  }else{renderTake();}
+}
+function copyList(){
+  var l=lowList();
+  var text='Shopping list\n'+l.map(function(i){return '- '+i.name+' (have '+total(i)+', low at '+i.low+')';}).join('\n');
+  var done=function(){toast('List copied');},fail=function(){toast('Couldn’t copy. Select the items instead.');};
+  try{navigator.clipboard.writeText(text).then(done,fail);}catch(e){fail();}
+}
+
+/* ---------- events ---------- */
+document.addEventListener('click',function(e){
+  var t=e.target;
+  var stp=t.closest&&t.closest('.stp');
+  if(stp){
+    var inp=document.getElementById(stp.dataset.for);
+    inp.value=Math.max(0,Math.min(99999,numVal(inp)+(+stp.dataset.step)));
+    inp.dispatchEvent(new Event('input',{bubbles:true}));return;
+  }
+  if(t===scrim||(t.closest&&t.closest('[data-close]'))){closeSheet();return;}
+  var tab=t.closest&&t.closest('.tab');
+  if(tab){ui.view=tab.dataset.view;renderAll();return;}
+  var a=t.closest&&t.closest('[data-act]');
+  if(!a)return;
+  var act=a.dataset.act,id=a.dataset.id;
+  if(act==='chip'){ui.cat=a.dataset.cat;renderTop();renderStock();window.scrollTo(0,0);}
+  else if(act==='edit')openItem(id);
+  else if(act==='count')openCount(id,a.dataset.loc);
+  else if(act==='bought')openBought(id);
+  else if(act==='copy')copyList();
+  else if(act==='retry'){sync.failed=false;renderAll();pullQuiet();}
+  else if(act==='dismiss'){ui.bannerOff=true;renderStock();}
+  else if(act==='tk-loc'){st.loc=a.dataset.loc;st.cat=null;renderTake();}
+  else if(act==='tk-change'){st.loc=null;st.cat=null;renderTake();}
+  else if(act==='tk-fresh'){state.counted[st.loc]={};persist();renderTake();toast('Counted marks cleared. Numbers kept.');}
+  else if(act==='tk-cat'){st.cat=a.dataset.cat;st.list=itemsIn(st.cat);
+    var first=0;for(var k=0;k<st.list.length;k++){if(!state.counted[st.loc][st.list[k].id]){first=k;break;}if(k===st.list.length-1)first=0;}
+    st.idx=first;renderTake();window.scrollTo(0,0);}
+  else if(act==='tk-back'){st.cat=null;renderTake();}
+  else if(act==='tk-prev'){if(st.idx>0){st.idx--;renderTake();}}
+  else if(act==='tk-skip')tkAdvance();
+  else if(act==='tk-next'){
+    var it=st.list[st.idx],v=numVal($('#tk'));
+    it[st.loc]=v;state.counted[st.loc][it.id]=true;persist();renderTabs();tkAdvance();
+  }
+});
+document.addEventListener('input',function(e){
+  if(e.target.id==='q'){ui.q=e.target.value;renderStock();return;}
+  if(!scrim.hidden&&sheetCtx)sheetCtx.update();
+  else if(live)live();
+});
+document.addEventListener('keydown',function(e){
+  if(e.key==='Escape'&&!scrim.hidden){closeSheet();return;}
+  if(e.key==='Enter'&&e.target&&e.target.id==='tk'){var b=$('#tkNext');if(b)b.click();}
+  if(e.key==='Enter'&&e.target&&e.target.id==='cnt'){var s=$('#save');if(s)s.click();}
+});
+$('#btnSearch').onclick=function(){
+  ui.searchOpen=!ui.searchOpen;
+  if(!ui.searchOpen){ui.q='';$('#q').value='';renderStock();}
+  renderTop();
+  if(ui.searchOpen){try{$('#q').focus();}catch(e){}}
+};
+$('#btnMenu').onclick=openMenu;
+$('#fab').onclick=function(){openItem(null);};
+
+renderAll();
+pullQuiet();
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&!busy())pullQuiet();});
+window.addEventListener('online',function(){if(!busy())pullQuiet();});
+window.addEventListener('offline',function(){setOffline(true);});
+setInterval(function(){if(!document.hidden&&!busy())pullQuiet();},60000);
+if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(){});});}
+})();
+</script>
+</body>
+</html>
