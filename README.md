@@ -39,6 +39,15 @@ There is no build step.
 - The first change each day keeps a copy of the previous day's data. The last 30 copies are kept and can be restored from the menu in the app.
 - Export in the menu gives you a JSON backup file. Import accepts that file, and also backups from the older inventory app.
 
+## Usage log
+
+Every change to a count is recorded with its type, the item, the location, the amount and the time. Open More, then Usage log, pick a day and you see what was used, with a Copy list button for invoices.
+
+- **Used** means stock taken out: reducing Mobile, or reducing Base with "Used up" ticked.
+- Buying, adding, moving stock from Base to Mobile and stock-take corrections are logged too, in a separate section so they never count as used.
+- Tap an entry to move it to another day (for a job you logged late) or undo it. Undo puts the stock back and removes the entry.
+- Entries are kept for about 400 days. The log starts from the day it was added, and importing a backup or restoring a copy does not add entries.
+
 ## No login
 
 Anyone who has the address can read and change the data. If you want to lock it down later, turn on Cloudflare Access for the project (Zero Trust, Access, Applications). The app needs no changes for that.

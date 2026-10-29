@@ -165,6 +165,18 @@ h1{font:700 23px/1 var(--display);margin:0;letter-spacing:-.01em;text-wrap:balan
 .snap small{color:var(--muted);font-size:13px}
 .snap .btn{height:40px;padding:0 14px;font-size:14px}
 textarea.exp{width:100%;height:140px;border-radius:12px;border:1px solid var(--line);background:var(--bg);color:var(--fg);padding:10px;font:12px var(--mono)}
+.logbar{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:8px;align-items:center;margin:8px 0 4px}
+.logbar .txt{text-align:center;font-weight:600;min-width:0}
+.logbar .ib{border:1px solid var(--line);background:var(--surface)}
+.qn{font:600 20px var(--mono);font-variant-numeric:tabular-nums}
+.pill.n{color:var(--muted);background:var(--surface2)}
+.ent{padding:14px 0;border-bottom:1px solid var(--line)}
+.ent b{display:block;font-weight:600;font-size:16px}
+.ent small{color:var(--muted);font-size:13px}
+.ent-a{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;margin-top:10px;align-items:center}
+.ent-a .btn{height:44px;padding:0 14px}
+.ent-a .txt{height:44px;min-width:0}
+.subh{margin:22px 0 2px;font:700 13px var(--display);letter-spacing:.11em;text-transform:uppercase;color:var(--accent)}
 #toast{position:fixed;left:50%;bottom:calc(86px + env(safe-area-inset-bottom,0px));transform:translate(-50%,12px);max-width:calc(100% - 32px);z-index:50;padding:10px 16px;border-radius:12px;background:var(--fg);color:var(--bg);font:500 14px var(--body);opacity:0;pointer-events:none;transition:opacity .18s,transform .18s}
 #toast.on{opacity:1;transform:translate(-50%,0)}
 @media (prefers-reduced-motion:reduce){#toast{transition:none}}
@@ -238,7 +250,7 @@ function readCache(){
 }
 var cached=readCache();
 var state=cached?cached.state:emptyState();
-var sync={version:cached?cached.version:0,synced:JSON.stringify(state),saving:false,dirty:false,loaded:!!cached,failed:false,pending:null};
+var sync={version:cached?cached.version:0,synced:JSON.stringify(state),saving:false,dirty:false,loaded:!!cached,failed:false,pending:null,queue:[]};
 function writeCache(){lsSet(CACHE,JSON.stringify({version:sync.version,state:state}));}
 function setOffline(f){var o=document.getElementById('off');if(o)o.hidden=!f;}
 function api(path,opts){
@@ -253,6 +265,7 @@ function adopt(b){
   writeCache();rederiveTake();
 }
 function busy(){return !scrim.hidden||(ui.view==='take'&&!!st.cat)||sync.saving||sync.dirty;}
+function logEvent(kind,id,loc,delta){if(delta)sync.queue.push({kind:kind,item_id:id,loc:loc,delta:delta});}
 function persist(opts){
   writeCache();
   sync.dirty=true;
@@ -264,7 +277,8 @@ function flush(){
   if(sync.saving||!sync.dirty)return;
   sync.saving=true;sync.dirty=false;
   var snap=JSON.stringify(state),p=sync.pending;sync.pending=null;
-  var body={baseVersion:sync.version,state:state};
+  var ev=sync.queue;sync.queue=[];
+  var body={baseVersion:sync.version,state:state,events:ev};
   if(p){body.force=!!p.force;body.label=p.label;}
   api('state',{method:'PUT',body:JSON.stringify(body)}).then(function(r){
     sync.saving=false;
@@ -272,13 +286,13 @@ function flush(){
       sync.version=r.body.version;sync.synced=snap;setOffline(false);
       if(sync.dirty)flush();else writeCache();
     }else if(r.status===409&&r.body&&r.body.state){
-      sync.dirty=false;adopt(r.body);closeSheet();renderAll(true);
+      sync.dirty=false;sync.queue=[];adopt(r.body);closeSheet();renderAll(true);
       toast('Changed on another device. Latest loaded. Make your change again.');
     }else fail();
   },function(){sync.saving=false;fail();});
 }
 function fail(){
-  sync.dirty=false;sync.pending=null;
+  sync.dirty=false;sync.pending=null;sync.queue=[];
   try{state=fix(JSON.parse(sync.synced));}catch(e){}
   writeCache();rederiveTake();setOffline(true);
   if(!scrim.hidden)closeSheet();
@@ -342,7 +356,7 @@ function setTheme(v){
 var ui={view:'stock',cat:'All',q:'',searchOpen:false,bannerOff:false};
 var st={loc:null,cat:null,idx:0,list:[]};
 var live=null;
-var TITLES={stock:'Stock',low:'Running low',take:'Stock-take',more:'More'};
+var TITLES={stock:'Stock',low:'Running low',take:'Stock-take',more:'More',log:'Usage log'};
 
 /* ---------- render ---------- */
 function renderTop(){
@@ -365,7 +379,7 @@ function renderTop(){
 }
 function renderTabs(){
   document.querySelectorAll('.tab').forEach(function(t){
-    if(t.dataset.view===ui.view)t.setAttribute('aria-current','page');else t.removeAttribute('aria-current');
+    if(t.dataset.view===(ui.view==='log'?'more':ui.view))t.setAttribute('aria-current','page');else t.removeAttribute('aria-current');
   });
   var n=state.items.filter(isLow).length;
   var b=$('#badge');b.hidden=n===0;b.textContent=n>99?'99+':n;
@@ -465,7 +479,7 @@ function renderMain(){
       :'<div class="load"><strong>Loading your stock\u2026</strong></div>';
     return;
   }
-  if(ui.view==='stock')renderStock();else if(ui.view==='low')renderLow();else if(ui.view==='more')renderMore();else renderTake();
+  if(ui.view==='stock')renderStock();else if(ui.view==='low')renderLow();else if(ui.view==='more')renderMore();else if(ui.view==='log')renderLog();else renderTake();
   window.scrollTo(0,0);
 }
 function renderAll(keepScroll){
@@ -478,7 +492,7 @@ function refresh(){ /* after data change: keep scroll */
   var y=window.scrollY;
   renderTop();renderTabs();
   var keep=ui.view==='take'&&st.cat;
-  if(!keep){live=null;if(ui.view==='stock')renderStock();else if(ui.view==='low')renderLow();else if(ui.view==='take')renderTake();window.scrollTo(0,y);}
+  if(!keep){live=null;if(ui.view==='stock')renderStock();else if(ui.view==='low')renderLow();else if(ui.view==='take')renderTake();else if(ui.view==='log')renderLog();window.scrollTo(0,y);}
 }
 
 /* ---------- sheet ---------- */
@@ -529,6 +543,9 @@ function openCount(id,loc){
     var r=calc();
     if(r.d===0){closeSheet();return;}
     it[loc]=r.val;if(r.moved)it.m+=r.moved;
+    if(loc==='m')logEvent(r.d<0?'used':'added',it.id,'m',r.d);
+    else if(r.d<0)logEvent(r.moved?'moved':'used',it.id,'b',r.d);
+    else logEvent('added',it.id,'b',r.d);
     persist();closeSheet();refresh();
     toast(r.moved?'Moved '+r.moved+' to Mobile':LOC[loc]+' set to '+r.val);
   };
@@ -580,7 +597,9 @@ function openItem(id){
       persist();closeSheet();refresh();toast('Saved');
     }else{
       var n={id:state.nextId++,name:name,group:g,low:low,paused:paused,m:numVal($('#f-m')),b:numVal($('#f-b'))};
-      state.items.push(n);persist();closeSheet();
+      state.items.push(n);
+      logEvent('added',n.id,'m',n.m);logEvent('added',n.id,'b',n.b);
+      persist();closeSheet();
       ui.cat=ui.cat==='All'?'All':g;refresh();toast('Added '+name);
     }
   };
@@ -609,7 +628,7 @@ function openBought(id){
   sheetCtx={update:calc};calc();
   $('#save').onclick=function(){
     var q=calc();if(q<=0){closeSheet();return;}
-    it[loc]+=q;persist();closeSheet();refresh();toast('Added '+q+' to '+LOC[loc]);
+    it[loc]+=q;logEvent('bought',it.id,loc,q);persist();closeSheet();refresh();toast('Added '+q+' to '+LOC[loc]);
   };
   $('#stop').onclick=function(){it.paused=true;persist();closeSheet();refresh();toast('Won’t show '+it.name+' as low');};
 }
@@ -657,7 +676,8 @@ function doExport(){
 function renderMore(){
   var th=getTheme();
   function tb(v,l){return '<button type="button" data-act="theme" data-theme="'+v+'" aria-pressed="'+(th===v)+'">'+l+'</button>';}
-  var h='<div class="sec" style="border:0;margin-top:8px;padding-top:0"><h3>Appearance</h3><p>Applies to this device only. Automatic follows the device setting.</p><div class="seg" id="themeSeg">'+tb('auto','Automatic')+tb('light','Light')+tb('dark','Dark')+'</div></div>'+
+  var h='<div class="sec" style="border:0;margin-top:8px;padding-top:0"><h3>Usage log</h3><p>See what was used on any day, for invoices.</p><button class="btn block" data-act="open-log">Open usage log</button></div>'+
+    '<div class="sec"><h3>Appearance</h3><p>Applies to this device only. Automatic follows the device setting.</p><div class="seg" id="themeSeg">'+tb('auto','Automatic')+tb('light','Light')+tb('dark','Dark')+'</div></div>'+
     '<div class="sec"><h3>Backup file</h3><p>Keep a copy outside the app.</p>'+
     '<div class="two"><button class="btn" id="exp-btn">Export</button><label class="btn" for="imp" style="cursor:pointer">Import</label></div>'+
     '<input class="vh" id="imp" type="file" accept=".json,application/json"></div>'+
@@ -712,6 +732,126 @@ function confirmImport(o){
   };
 }
 
+/* ---------- usage log ---------- */
+var lg={day:null,today:null,entries:[],recent:[],loading:false,error:false,req:0};
+var KIND_LABEL={used:'Used',bought:'Bought',added:'Added',moved:'Moved',corrected:'Corrected'};
+function dayDate(day){return new Date(day+'T12:00:00Z');}
+function fmtDayStr(day){return dayDate(day).toLocaleDateString('en-GB',{weekday:'short',day:'numeric',month:'short',timeZone:'UTC'});}
+function fmtTime(ts){return new Date(ts).toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',timeZone:'Europe/London'});}
+function shiftDay(day,n){var d=dayDate(day);d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10);}
+function fmtEvent(e){
+  var n=Math.abs(e.delta),L=LOC[e.loc];
+  if(e.kind==='used')return 'Used '+n+' from '+L;
+  if(e.kind==='bought')return 'Bought '+n+', into '+L;
+  if(e.kind==='added')return 'Added '+n+' to '+L;
+  if(e.kind==='moved')return 'Moved '+n+' from Base to Mobile';
+  return L+' count corrected by '+(e.delta>0?'+':'−')+n;
+}
+function fetchLog(day){
+  var req=++lg.req;
+  lg.loading=true;lg.error=false;
+  if(ui.view==='log')renderLog();
+  var q=day?'log?day='+encodeURIComponent(day):'log';
+  api(q).then(function(r){
+    if(req!==lg.req)return;
+    lg.loading=false;
+    if(r.status!==200||!r.body){lg.error=true;}
+    else{lg.day=r.body.day;lg.today=r.body.today;lg.entries=r.body.entries||[];lg.recent=r.body.recent||[];}
+    if(ui.view==='log')renderLog();
+  },function(){if(req!==lg.req)return;lg.loading=false;lg.error=true;if(ui.view==='log')renderLog();});
+}
+function usedGroups(){
+  var map={},order=[];
+  lg.entries.forEach(function(e){
+    if(e.kind!=='used')return;
+    var g=map[e.item_id];
+    if(!g){g=map[e.item_id]={id:e.item_id,name:e.name,qty:0,locs:{m:0,b:0},entries:[]};order.push(g);}
+    g.qty+=-e.delta;g.locs[e.loc]+=-e.delta;g.entries.push(e);g.name=e.name;
+  });
+  return order.sort(function(a,b){return cmp(a.name,b.name);});
+}
+function renderLog(){
+  var h='<button class="back" data-act="log-back">‹ More</button>';
+  if(!lg.day&&!lg.error){
+    $('#main').innerHTML=h+'<div class="load"><strong>Loading the log…</strong></div>';
+    return;
+  }
+  if(lg.error&&!lg.day){
+    $('#main').innerHTML=h+'<div class="load"><strong>Can’t load the log</strong>Check your signal, then try again.<br><button class="btn" data-act="log-retry">Try again</button></div>';
+    return;
+  }
+  var atToday=lg.day>=lg.today;
+  h+='<div class="logbar"><button class="ib" data-act="log-prev" aria-label="Previous day">‹</button>'+
+    '<input class="txt" type="date" id="logDay" value="'+esc(lg.day)+'" max="'+esc(lg.today)+'" aria-label="Day">'+
+    '<button class="ib" data-act="log-next" aria-label="Next day"'+(atToday?' disabled style="opacity:.35"':'')+'>›</button></div>';
+  var label=(lg.day===lg.today?'Today, ':'')+fmtDayStr(lg.day);
+  var used=usedGroups();
+  var units=used.reduce(function(a,g){return a+g.qty;},0);
+  h+='<div class="head2"><p>'+(lg.loading?'Loading…':(used.length?used.length+(used.length===1?' item':' items')+' · '+units+' used':''))+'</p>'+
+    (used.length?'<button class="btn" style="height:40px" data-act="log-copy">Copy list</button>':'')+'</div>';
+  h+='<h2 class="subh" style="margin-top:6px">Used on '+esc(label)+'</h2>';
+  if(!used.length&&!lg.loading)h+='<div class="empty" style="margin:20px 0"><strong>Nothing used</strong>Reducing a count, or ticking “Used up” when you reduce Base, shows up here.</div>';
+  h+=used.map(function(g,i){
+    var parts=[];if(g.locs.m)parts.push('Mobile '+g.locs.m);if(g.locs.b)parts.push('Base '+g.locs.b);
+    return '<button class="lrow" data-act="log-item" data-i="'+i+'"><span class="t">'+esc(g.name)+'</span><span class="s">'+parts.join(' · ')+' · '+g.entries.length+(g.entries.length===1?' entry':' entries')+'</span><span class="r"><span class="qn">× '+g.qty+'</span></span></button>';
+  }).join('');
+  var other=lg.entries.filter(function(e){return e.kind!=='used';});
+  if(other.length){
+    h+='<h2 class="subh">Other changes</h2>';
+    h+=other.map(function(e){
+      return '<button class="lrow" data-act="log-other" data-id="'+e.id+'"><span class="t">'+esc(e.name)+'</span><span class="s">'+esc(fmtEvent(e))+' · '+fmtTime(e.ts)+'</span><span class="r"><span class="pill n">'+KIND_LABEL[e.kind]+'</span></span></button>';
+    }).join('');
+  }
+  var recent=lg.recent.filter(function(r){return r.day!==lg.day;});
+  if(recent.length){
+    h+='<h2 class="subh">Other days with usage</h2>';
+    h+=recent.map(function(r){
+      return '<button class="lrow" data-act="log-day" data-day="'+esc(r.day)+'"><span class="t">'+esc(fmtDayStr(r.day))+'</span><span class="s">'+(r.day===lg.today?'Today':'')+'</span><span class="r"><span class="qn">'+r.units+' used</span></span></button>';
+    }).join('');
+  }
+  if(lg.error)h+='<p class="err" style="margin-top:14px">Couldn’t refresh. Check your signal.</p>';
+  $('#main').innerHTML=h;
+}
+function copyLog(){
+  var used=usedGroups();
+  var text='Used on '+fmtDayStr(lg.day)+'\n'+used.map(function(g){return '- '+g.name+' × '+g.qty;}).join('\n');
+  var done=function(){toast('List copied');},fail=function(){toast('Couldn’t copy. Select the items instead.');};
+  try{navigator.clipboard.writeText(text).then(done,fail);}catch(e){fail();}
+}
+function openEntries(title,entries){
+  var h=head(title,esc(fmtDayStr(lg.day)));
+  entries.forEach(function(e){
+    h+='<div class="ent"><b>'+esc(fmtEvent(e))+'</b><small>'+fmtTime(e.ts)+'</small>'+
+      '<div class="ent-a"><input class="txt" type="date" id="mv-'+e.id+'" value="'+esc(e.day)+'" max="'+esc(lg.today)+'" aria-label="Move to day"><button class="btn" data-mv="'+e.id+'">Move</button><button class="btn danger" data-undo="'+e.id+'">Undo</button></div></div>';
+  });
+  h+='<p class="sub" style="margin-top:12px">Move changes the day it is listed under. Undo puts the stock back and removes the entry.</p>';
+  openSheet(h);
+  sheetEl.querySelectorAll('[data-mv]').forEach(function(b){
+    b.onclick=function(){
+      var id=+b.dataset.mv,d=$('#mv-'+id).value;
+      if(!d){toast('Pick a day first');return;}
+      b.disabled=true;
+      api('log/move',{method:'POST',body:JSON.stringify({id:id,day:d})}).then(function(r){
+        if(r.status===200){closeSheet();toast('Moved to '+fmtDayStr(d));fetchLog(lg.day);}
+        else{b.disabled=false;toast('Couldn’t move that entry');}
+      },function(){b.disabled=false;toast('Couldn’t move. Check your signal.');});
+    };
+  });
+  sheetEl.querySelectorAll('[data-undo]').forEach(function(b){
+    b.onclick=function(){
+      if(b.dataset.arm!=='1'){b.dataset.arm='1';b.textContent='Tap to confirm';return;}
+      var id=+b.dataset.undo;b.disabled=true;
+      api('log/undo',{method:'POST',body:JSON.stringify({id:id})}).then(function(r){
+        if(r.status===200&&r.body){
+          if(r.body.state&&!sync.saving&&!sync.dirty)adopt(r.body);
+          closeSheet();renderTabs();fetchLog(lg.day);
+          toast(r.body.restored?'Undone. Stock put back.':'Entry removed. The item no longer exists, so no stock changed.');
+        }else{b.disabled=false;toast('Couldn’t undo that entry');}
+      },function(){b.disabled=false;toast('Couldn’t undo. Check your signal.');});
+    };
+  });
+}
+
 /* ---------- stock-take actions ---------- */
 function tkAdvance(){
   st.idx++;
@@ -741,7 +881,16 @@ document.addEventListener('click',function(e){
   var a=t.closest&&t.closest('[data-act]');
   if(!a)return;
   var act=a.dataset.act,id=a.dataset.id;
-  if(act==='theme'){
+  if(act==='open-log'){ui.view='log';lg.day=null;lg.error=false;renderAll();fetchLog(null);}
+  else if(act==='log-back'){ui.view='more';renderAll();}
+  else if(act==='log-retry'){fetchLog(null);}
+  else if(act==='log-prev'){fetchLog(shiftDay(lg.day,-1));}
+  else if(act==='log-next'){if(lg.day<lg.today)fetchLog(shiftDay(lg.day,1));}
+  else if(act==='log-day'){fetchLog(a.dataset.day);}
+  else if(act==='log-copy')copyLog();
+  else if(act==='log-item'){var g=usedGroups()[+a.dataset.i];if(g)openEntries(g.name,g.entries);}
+  else if(act==='log-other'){var oe=lg.entries.filter(function(e){return e.id===+a.dataset.id;})[0];if(oe)openEntries(oe.name,[oe]);}
+  else if(act==='theme'){
     setTheme(a.dataset.theme);
     document.querySelectorAll('#themeSeg button').forEach(function(b){b.setAttribute('aria-pressed',String(b===a));});
   }
@@ -762,6 +911,7 @@ document.addEventListener('click',function(e){
   else if(act==='tk-skip')tkAdvance();
   else if(act==='tk-next'){
     var it=st.list[st.idx],v=numVal($('#tk'));
+    logEvent('corrected',it.id,st.loc,v-it[st.loc]);
     it[st.loc]=v;state.counted[st.loc][it.id]=true;persist();renderTabs();tkAdvance();
   }
 });
@@ -771,6 +921,7 @@ document.addEventListener('input',function(e){
   else if(live)live();
 });
 document.addEventListener('change',function(e){
+  if(e.target.id==='logDay'&&e.target.value){fetchLog(e.target.value);return;}
   if(e.target.id==='catSel'){ui.cat=e.target.value;renderStock();window.scrollTo(0,0);}
 });
 document.addEventListener('keydown',function(e){

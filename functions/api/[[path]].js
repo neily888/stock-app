@@ -4,15 +4,25 @@
 //   PUT  /api/state       -> { version }          body: { baseVersion, state, force?, label? }
 //   GET  /api/snapshots   -> { snapshots: [{ id, ts, label, items, units }] }
 //   POST /api/restore     -> { version, state }   body: { id }
+//   GET  /api/log?day=YYYY-MM-DD -> { day, entries, recent }
+//   POST /api/log/move    -> { ok }               body: { id, day }
+//   POST /api/log/undo    -> { version, state, restored }  body: { id }
 //
 // The whole inventory is one JSON document with a version number. A save only
 // succeeds if the sender's baseVersion matches, otherwise the current state is
 // returned with a 409 so the app can reload it. The first save on each day
 // keeps the previous state as an automatic copy; the newest 30 copies are kept.
+//
+// Each save may also carry `events`, one per change to a count (used, bought,
+// added, moved, corrected). They are stored in the log table, grouped by London
+// calendar day, and kept for about 400 days.
 
 const MAX_BODY = 1_000_000;
 const MAX_ITEMS = 5000;
 const KEEP_SNAPSHOTS = 30;
+const KEEP_LOG_MS = 400 * 24 * 3600 * 1000;
+const MAX_EVENTS = 200;
+const KINDS = new Set(['used', 'bought', 'added', 'moved', 'corrected']);
 const TZ = 'Europe/London';
 
 let ready = false;
@@ -33,6 +43,10 @@ async function init(db) {
     db.prepare(
       'CREATE TABLE IF NOT EXISTS snapshots (id TEXT PRIMARY KEY, ts INTEGER NOT NULL, day TEXT, label TEXT NOT NULL, data TEXT NOT NULL)'
     ),
+    db.prepare(
+      'CREATE TABLE IF NOT EXISTS log (id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, day TEXT NOT NULL, kind TEXT NOT NULL, item_id INTEGER NOT NULL, name TEXT NOT NULL, grp TEXT NOT NULL, loc TEXT NOT NULL, delta INTEGER NOT NULL)'
+    ),
+    db.prepare('CREATE INDEX IF NOT EXISTS log_day ON log (day)'),
   ]);
   ready = true;
 }
@@ -107,6 +121,46 @@ async function getState(db) {
   return json({ version: cur.version, state: JSON.parse(cur.data) });
 }
 
+// Keep the previous state as the day's automatic copy, once per London day.
+async function ensureDailySnapshot(db, curData, now) {
+  const day = londonDay();
+  const has = await db.prepare('SELECT 1 AS x FROM snapshots WHERE day = ?').bind(day).first();
+  if (!has) {
+    await db
+      .prepare('INSERT INTO snapshots (id, ts, day, label, data) VALUES (?, ?, ?, ?, ?)')
+      .bind('d-' + day, now, day, londonLabel(), curData)
+      .run();
+  }
+}
+
+function cleanEvents(list, state) {
+  if (!Array.isArray(list)) return [];
+  const byId = new Map(state.items.map((i) => [i.id, i]));
+  const out = [];
+  for (const e of list.slice(0, MAX_EVENTS)) {
+    if (!e || !KINDS.has(e.kind) || (e.loc !== 'm' && e.loc !== 'b')) continue;
+    const item = byId.get(Math.floor(Number(e.item_id)));
+    const delta = Math.trunc(Number(e.delta));
+    if (!item || !Number.isFinite(delta) || delta === 0 || Math.abs(delta) > 99999) continue;
+    out.push({ kind: e.kind, item_id: item.id, name: item.name, grp: item.group, loc: e.loc, delta });
+  }
+  return out;
+}
+
+async function saveEvents(db, events, now) {
+  if (events.length) {
+    const day = londonDay(new Date(now));
+    await db.batch(
+      events.map((e) =>
+        db
+          .prepare('INSERT INTO log (ts, day, kind, item_id, name, grp, loc, delta) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+          .bind(now, day, e.kind, e.item_id, e.name, e.grp, e.loc, e.delta)
+      )
+    );
+  }
+  await db.prepare('DELETE FROM log WHERE ts < ?').bind(now - KEEP_LOG_MS).run();
+}
+
 async function putState(db, request) {
   const { body, error } = await readBody(request);
   if (error) return json({ error }, 400);
@@ -130,14 +184,7 @@ async function putState(db, request) {
         .bind('x-' + now, now, label, cur.data)
         .run();
     } else {
-      const day = londonDay();
-      const has = await db.prepare('SELECT 1 AS x FROM snapshots WHERE day = ?').bind(day).first();
-      if (!has) {
-        await db
-          .prepare('INSERT INTO snapshots (id, ts, day, label, data) VALUES (?, ?, ?, ?, ?)')
-          .bind('d-' + day, now, day, londonLabel(), cur.data)
-          .run();
-      }
+      await ensureDailySnapshot(db, cur.data, now);
     }
   }
 
@@ -165,6 +212,7 @@ async function putState(db, request) {
     }
   }
   await pruneSnapshots(db);
+  await saveEvents(db, force ? [] : cleanEvents(body.events, state), now);
   return json({ version: next });
 }
 
@@ -208,6 +256,76 @@ async function restore(db, request) {
   return json({ version: fresh.version, state: JSON.parse(fresh.data) });
 }
 
+function validDay(s) {
+  if (typeof s !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  const d = new Date(s + 'T12:00:00Z');
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s;
+}
+
+async function getLog(db, url) {
+  let day = url.searchParams.get('day');
+  if (!day) day = londonDay();
+  if (!validDay(day)) return json({ error: 'Invalid day' }, 400);
+  const { results } = await db
+    .prepare('SELECT id, ts, day, kind, item_id, name, grp, loc, delta FROM log WHERE day = ? ORDER BY ts ASC, id ASC')
+    .bind(day)
+    .all();
+  const rec = await db
+    .prepare("SELECT day, SUM(-delta) AS units FROM log WHERE kind = 'used' GROUP BY day ORDER BY day DESC LIMIT 10")
+    .all();
+  return json({ day, today: londonDay(), entries: results, recent: rec.results });
+}
+
+async function moveEntry(db, request) {
+  const { body, error } = await readBody(request);
+  if (error) return json({ error }, 400);
+  const id = Math.floor(Number(body && body.id));
+  if (!Number.isFinite(id) || !validDay(body && body.day)) return json({ error: 'Invalid request' }, 400);
+  const res = await db.prepare('UPDATE log SET day = ? WHERE id = ?').bind(body.day, id).run();
+  if (!res.meta || res.meta.changes !== 1) return json({ error: 'Entry not found' }, 404);
+  return json({ ok: true });
+}
+
+// Reverse one log entry: put the stock back and remove the entry.
+async function undoEntry(db, request) {
+  const { body, error } = await readBody(request);
+  if (error) return json({ error }, 400);
+  const id = Math.floor(Number(body && body.id));
+  if (!Number.isFinite(id)) return json({ error: 'Invalid request' }, 400);
+  const ev = await db.prepare('SELECT id, kind, item_id, loc, delta FROM log WHERE id = ?').bind(id).first();
+  if (!ev) return json({ error: 'Entry not found' }, 404);
+
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const cur = await db.prepare('SELECT version, data FROM app_state WHERE id = 1').first();
+    if (!cur) return json({ error: 'No stock data' }, 404);
+    const state = JSON.parse(cur.data);
+    const item = state.items.find((i) => i.id === ev.item_id);
+    let restored = false;
+    let version = cur.version;
+    if (item) {
+      if (ev.kind === 'moved') {
+        // a move took stock out of Base and put the same amount into Mobile
+        item.b = Math.max(0, item.b - ev.delta);
+        item.m = Math.max(0, item.m + ev.delta);
+      } else {
+        item[ev.loc] = Math.max(0, Math.min(99999, item[ev.loc] - ev.delta));
+      }
+      const now = Date.now();
+      await ensureDailySnapshot(db, cur.data, now);
+      version = cur.version + 1;
+      const res = await db
+        .prepare('UPDATE app_state SET version = ?, data = ?, updated_at = ? WHERE id = 1 AND version = ?')
+        .bind(version, JSON.stringify(state), now, cur.version)
+        .run();
+      if (!res.meta || res.meta.changes !== 1) continue;
+      restored = true;
+    }
+    await db.prepare('DELETE FROM log WHERE id = ?').bind(id).run();
+    return json({ version, state, restored });
+  }
+  return json({ error: 'Busy, try again' }, 409);
+}
+
 export async function onRequest({ request, env, params }) {
   const db = env.DB;
   if (!db) {
@@ -221,7 +339,10 @@ export async function onRequest({ request, env, params }) {
     if (route === 'state' && method === 'PUT') return await putState(db, request);
     if (route === 'snapshots' && method === 'GET') return await listSnapshots(db);
     if (route === 'restore' && method === 'POST') return await restore(db, request);
-    if (['state', 'snapshots', 'restore'].includes(route)) return json({ error: 'Method not allowed' }, 405);
+    if (route === 'log' && method === 'GET') return await getLog(db, new URL(request.url));
+    if (route === 'log/move' && method === 'POST') return await moveEntry(db, request);
+    if (route === 'log/undo' && method === 'POST') return await undoEntry(db, request);
+    if (['state', 'snapshots', 'restore', 'log', 'log/move', 'log/undo'].includes(route)) return json({ error: 'Method not allowed' }, 405);
     return json({ error: 'Not found' }, 404);
   } catch (e) {
     return json({ error: 'Server error' }, 500);
